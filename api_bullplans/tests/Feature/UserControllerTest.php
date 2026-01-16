@@ -1,6 +1,6 @@
 <?php
 
-namespace Tests\Feature\User;
+namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -11,17 +11,11 @@ class UserControllerTest extends TestCase
     use RefreshDatabase;
 
     private string $base = '/api/user';
-    private array $authPayload;
 
     protected function setUp(): void
     {
         parent::setUp();
-
         config()->set('app.security_code', 'TEST_CODE');
-
-        $this->authPayload = [
-            'biztonsagiKod' => 'TEST_CODE',
-        ];
     }
 
     private function seedUser(array $overrides = []): void
@@ -39,64 +33,63 @@ class UserControllerTest extends TestCase
         ], $overrides));
     }
 
-    public function test_get_requires_existing_email(): void
+    public function test_get_requires_email_and_existing_user(): void
     {
-        $res = $this->postJson($this->base . '/get', $this->authPayload);
-        $res->assertStatus(422)
-            ->assertJsonPath('success', false)
-            ->assertJsonPath('message', 'Validation error');
+        $res = $this->postAuthJson($this->base . '/get');
+        $this->assertApiValidation($res);
 
-        $res = $this->postJson($this->base . '/get', array_merge($this->authPayload, [
+        $res = $this->postAuthJson($this->base . '/get', [
             'email' => 'missing@test.com',
-        ]));
-        $res->assertStatus(422)->assertJsonPath('success', false);
+        ]);
+        $this->assertApiValidation($res);
     }
 
     public function test_get_returns_user_when_exists(): void
     {
         $this->seedUser();
 
-        $res = $this->postJson($this->base . '/get', array_merge($this->authPayload, [
+        $res = $this->postAuthJson($this->base . '/get', [
             'email' => 'u1@test.com',
-        ]));
+        ]);
 
-        $res->assertOk()
-            ->assertJsonPath('success', true)
-            ->assertJsonPath('message', 'User loaded.')
-            ->assertJsonStructure([
-                'success',
-                'message',
-                'data' => ['email', 'profile_data', 'valid_data'],
-            ]);
+        $this->assertApiSuccess($res, 'User loaded.');
+
+        $res->assertJsonStructure([
+            'success',
+            'message',
+            'data' => ['email', 'profile_data', 'valid_data'],
+        ]);
+
+        $data = $res->json('data');
+        $this->assertSame('u1@test.com', $data['email']);
     }
 
     public function test_logout_sets_login_zero_and_saves_profile_data(): void
     {
         $this->seedUser(['login' => 1]);
 
-        $res = $this->putJson($this->base . '/logout', array_merge($this->authPayload, [
+        $res = $this->putAuthJson($this->base . '/logout', [
             'email' => 'u1@test.com',
             'profile_data' => ['x' => 2],
-        ]));
+        ]);
 
-        $res->assertOk()
-            ->assertJsonPath('success', true)
-            ->assertJsonPath('message', 'User logged out.');
+        $this->assertApiSuccess($res, 'User logged out.');
 
         $row = DB::table('Users')->where('email', 'u1@test.com')->first();
-        $this->assertSame(0, (int)$row->login);
+        $this->assertNotNull($row);
+        $this->assertSame(0, (int) $row->login);
         $this->assertSame(['x' => 2], json_decode($row->profile_data, true));
     }
 
-    public function test_get_valid_data_requires_existing_email(): void
+    public function test_get_valid_data_requires_email_and_existing_user(): void
     {
-        $res = $this->postJson($this->base . '/get/validData', $this->authPayload);
-        $res->assertStatus(422)->assertJsonPath('success', false);
+        $res = $this->postAuthJson($this->base . '/get/validData');
+        $this->assertApiValidation($res);
 
-        $res = $this->postJson($this->base . '/get/validData', array_merge($this->authPayload, [
+        $res = $this->postAuthJson($this->base . '/get/validData', [
             'email' => 'missing@test.com',
-        ]));
-        $res->assertStatus(422)->assertJsonPath('success', false);
+        ]);
+        $this->assertApiValidation($res);
     }
 
     public function test_get_valid_data_returns_object_shapes(): void
@@ -108,17 +101,16 @@ class UserControllerTest extends TestCase
             ], JSON_UNESCAPED_UNICODE),
         ]);
 
-        $res = $this->postJson($this->base . '/get/validData', array_merge($this->authPayload, [
+        $res = $this->postAuthJson($this->base . '/get/validData', [
             'email' => 'u1@test.com',
-        ]));
+        ]);
 
-        $res->assertOk()
-            ->assertJsonPath('success', true)
-            ->assertJsonPath('message', 'Valid data loaded.')
-            ->assertJsonStructure([
-                'success', 'message',
-                'data' => ['trainingDays', 'datas'],
-            ]);
+        $this->assertApiSuccess($res, 'Valid data loaded.');
+
+        $res->assertJsonStructure([
+            'success', 'message',
+            'data' => ['trainingDays', 'datas'],
+        ]);
 
         $data = $res->json('data');
         $this->assertIsArray($data);
@@ -130,30 +122,31 @@ class UserControllerTest extends TestCase
     {
         $this->seedUser();
 
-        $res = $this->putJson($this->base . '/update/validData', $this->authPayload);
-        $res->assertStatus(422)->assertJsonPath('success', false);
+        $res = $this->putAuthJson($this->base . '/update/validData', [
+            'email' => 'u1@test.com',
+        ]);
+
+        $this->assertApiValidation($res);
     }
 
-    public function test_update_valid_data_updates_db(): void
+    public function test_update_valid_data_updates_db_and_preserves_required_keys(): void
     {
         $this->seedUser();
 
         $payload = [
-            'trainingDays' => [],
-            'datas' => [],
             'x' => 1,
         ];
 
-        $res = $this->putJson($this->base . '/update/validData', array_merge($this->authPayload, [
+        $res = $this->putAuthJson($this->base . '/update/validData', [
             'email' => 'u1@test.com',
             'valid_data' => $payload,
-        ]));
+        ]);
 
-        $res->assertOk()
-            ->assertJsonPath('success', true)
-            ->assertJsonPath('message', 'Valid data updated.');
+        $this->assertApiSuccess($res, 'Valid data updated.');
 
         $row = DB::table('Users')->where('email', 'u1@test.com')->first();
+        $this->assertNotNull($row);
+
         $stored = json_decode($row->valid_data, true);
 
         $this->assertSame(1, $stored['x']);
@@ -165,25 +158,26 @@ class UserControllerTest extends TestCase
     {
         $this->seedUser();
 
-        $res = $this->putJson($this->base . '/update/profileData', $this->authPayload);
-        $res->assertStatus(422)->assertJsonPath('success', false);
+        $res = $this->putAuthJson($this->base . '/update/profileData', [
+            'email' => 'u1@test.com',
+        ]);
+
+        $this->assertApiValidation($res);
     }
 
     public function test_update_profile_data_updates_db(): void
     {
         $this->seedUser();
 
-        $res = $this->putJson($this->base . '/update/profileData', array_merge($this->authPayload, [
+        $res = $this->putAuthJson($this->base . '/update/profileData', [
             'email' => 'u1@test.com',
             'profile_data' => ['a' => 'b'],
-        ]));
+        ]);
 
-        $res->assertOk()
-            ->assertJsonPath('success', true)
-            ->assertJsonPath('message', 'Profile data updated.');
+        $this->assertApiSuccess($res, 'Profile data updated.');
 
         $row = DB::table('Users')->where('email', 'u1@test.com')->first();
+        $this->assertNotNull($row);
         $this->assertSame(['a' => 'b'], json_decode($row->profile_data, true));
     }
-
 }
