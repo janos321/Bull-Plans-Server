@@ -15,7 +15,6 @@ return new class extends Migration {
             $table->string('password', 255);
             $table->tinyInteger('login')->default(0)->nullable();
 
-            // nálad longtext, teszthez mehet text is
             $table->longText('profile_data')->nullable();
             $table->longText('valid_data')->nullable();
 
